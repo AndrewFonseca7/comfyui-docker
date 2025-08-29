@@ -141,10 +141,47 @@ curl http://localhost:8188/object_info
 - `GET /history` - Funcionando
 - `GET /view?filename=` - Disponible para ver imágenes
 
+## AWS GPU Deployment Ready ✅
+
+### Archivos Creados para AWS
+- `aws-deploy.md` - Guía completa de deployment
+- `setup-aws-instance.sh` - Script de configuración automática  
+- `docker-compose-aws.yaml` - Docker config para GPU
+- `aws-performance-test.py` - Suite de benchmarks
+- `aws-launch.sh` - Launcher automático de instancia EC2
+
+### Quick Start AWS GPU (Estimado: $2.10 para 4 horas)
+
+```bash
+# 1. Lanzar instancia (reemplazar your-key-name)
+./aws-launch.sh us-east-1 your-key-name
+
+# 2. Subir archivos (usar IP de output)
+scp -i ~/.ssh/your-key-name.pem *.sh *.yaml *.py ubuntu@EC2_IP:~/
+
+# 3. SSH y configurar
+ssh -i ~/.ssh/your-key-name.pem ubuntu@EC2_IP
+./setup-aws-instance.sh
+
+# 4. Subir código Docker y ejecutar
+# ... subir Dockerfile, requirements.txt
+docker-compose -f docker-compose-aws.yaml up --build
+
+# 5. Ejecutar benchmark
+python3 aws-performance-test.py http://localhost:7860 full
+```
+
+### Performance Esperado vs M3 Pro CPU
+- **Velocidad**: 15-25x más rápido
+- **Calidad**: SDXL (vs SD 1.5)
+- **Resolución**: 1024x1024 (vs 512x512)
+- **Tiempo por imagen**: ~20-30s (vs 90s)
+- **Costo por imagen**: ~$0.004
+
 ## Próximos Pasos
 1. [x] Ejecutar versión CPU local para familiarización
 2. [x] Desarrollar/probar workflows básicos
-3. [ ] Preparar configuración para AWS GPU
+3. [x] Preparar configuración para AWS GPU
 4. [ ] Testing 4 horas en AWS g4dn.xlarge
 5. [ ] Evaluación costos vs rendimiento
 
