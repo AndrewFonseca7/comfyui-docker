@@ -2,15 +2,37 @@
 """
 Test workflow for ComfyUI API
 Generates a simple text-to-image using SD 1.5 model
+
+Usage:
+  python test_workflow.py                          # Direct to ComfyUI (port 8188)
+  python test_workflow.py --url http://localhost    # Via Caddy proxy (port 80)
+  python test_workflow.py --api-key YOUR_KEY        # Via Caddy with Bearer auth
+  python test_workflow.py --skip-generation         # Only test system info
 """
 
 import requests
 import json
 import time
 import sys
+import os
 
-# ComfyUI API base URL
-API_URL = "http://localhost:8188"
+# ComfyUI API base URL (direct by default, use --url for Caddy proxy)
+API_URL = os.environ.get("COMFYUI_URL", "http://localhost:8188")
+API_KEY = os.environ.get("COMFYUI_API_KEY", "")
+
+# Parse CLI args
+for i, arg in enumerate(sys.argv[1:], 1):
+    if arg == "--url" and i < len(sys.argv) - 1:
+        API_URL = sys.argv[i + 1]
+    elif arg == "--api-key" and i < len(sys.argv) - 1:
+        API_KEY = sys.argv[i + 1]
+
+
+def get_headers():
+    """Return auth headers if API key is configured."""
+    if API_KEY:
+        return {"Authorization": f"Bearer {API_KEY}"}
+    return {}
 
 def test_basic_workflow():
     """Test basic text-to-image generation workflow"""
@@ -84,6 +106,7 @@ def test_basic_workflow():
         response = requests.post(
             f"{API_URL}/prompt",
             json={"prompt": workflow},
+            headers=get_headers(),
             timeout=300  # 5 minute timeout
         )
         
@@ -110,7 +133,7 @@ def monitor_progress(prompt_id):
     while True:
         try:
             # Check history
-            response = requests.get(f"{API_URL}/history/{prompt_id}")
+            response = requests.get(f"{API_URL}/history/{prompt_id}", headers=get_headers())
             
             if response.status_code == 200:
                 history = response.json()
@@ -142,7 +165,7 @@ def test_system_info():
     
     try:
         # System stats
-        response = requests.get(f"{API_URL}/system_stats")
+        response = requests.get(f"{API_URL}/system_stats", headers=get_headers())
         if response.status_code == 200:
             stats = response.json()
             print("📊 System Stats:")
@@ -166,3 +189,4 @@ if __name__ == "__main__":
         print("⏭️ Skipping image generation (--skip-generation flag)")
     else:
         test_basic_workflow()
+

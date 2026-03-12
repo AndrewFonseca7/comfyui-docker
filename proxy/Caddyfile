@@ -1,0 +1,23 @@
+{$DOMAIN:localhost} {
+    # M2M: requests with Bearer token -> validate via sidecar
+    @has_bearer header Authorization Bearer*
+    handle @has_bearer {
+        forward_auth auth-sidecar:8080 {
+            uri /validate
+            copy_headers X-User
+        }
+        reverse_proxy comfyui:8188 comfyui-cpu:8188 {
+            lb_try_duration 1s
+        }
+    }
+
+    # Browser users: basic auth
+    handle {
+        basicauth {
+            {$AUTH_USER} {$AUTH_HASH}
+        }
+        reverse_proxy comfyui:8188 comfyui-cpu:8188 {
+            lb_try_duration 1s
+        }
+    }
+}

@@ -1,0 +1,6 @@
+models/**/*.ckpt
+models/**/*.safetensors
+models/**/*.pth
+models/**/*.bin
+output/
+.env

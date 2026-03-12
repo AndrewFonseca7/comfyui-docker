@@ -1,0 +1,8 @@
+models/
+output/
+input/
+.git
+*.md
+aws-*
+plan.md
+.claude/

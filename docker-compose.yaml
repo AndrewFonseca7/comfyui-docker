@@ -1,14 +1,16 @@
-version: "1"
-
 services:
   comfyui:
-    build: .
-
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-
-    ports:
-      - 7860:7860
+    build:
+      context: .
+      args:
+        TARGET: gpu
+    expose:
+      - "8188"
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/output
+      - ./input:/app/input
+    profiles: ["gpu"]
     deploy:
       resources:
         reservations:
@@ -16,3 +18,49 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
+    restart: unless-stopped
+
+  comfyui-cpu:
+    build:
+      context: .
+      args:
+        TARGET: cpu
+    expose:
+      - "8188"
+    volumes:
+      - ./models:/app/models
+      - ./output:/app/output
+      - ./input:/app/input
+    profiles: ["cpu"]
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    env_file:
+      - path: .env
+        required: false
+    depends_on:
+      comfyui:
+        condition: service_started
+        required: false
+      comfyui-cpu:
+        condition: service_started
+        required: false
+    profiles: ["gpu", "cpu"]
+    restart: unless-stopped
+
+  auth-sidecar:
+    build: ./proxy/auth-sidecar
+    volumes:
+      - ./config/api-keys.json:/config/api-keys.json:ro
+    profiles: ["gpu", "cpu"]
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
