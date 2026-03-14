@@ -10,11 +10,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # System deps (shared)
 RUN apt-get update && apt-get install -y \
     git python3 python3-pip python3-venv wget curl ffmpeg \
-    libsm6 libxext6 libgl1-mesa-glx git-lfs \
+    libsm6 libxext6 libgl1-mesa-dev git-lfs \
     && rm -rf /var/lib/apt/lists/*
 
 # Non-root user
-RUN useradd -m -u 1000 comfyui
+RUN useradd -m -o -u 1000 comfyui
 USER comfyui
 WORKDIR /app
 

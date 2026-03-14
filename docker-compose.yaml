@@ -10,6 +10,7 @@ services:
       - ./models:/app/models
       - ./output:/app/output
       - ./input:/app/input
+      - ./comfyui-nodes/creaturia_nodes:/app/custom_nodes/creaturia_nodes
     profiles: ["gpu"]
     deploy:
       resources:
@@ -25,13 +26,16 @@ services:
       context: .
       args:
         TARGET: cpu
-    expose:
-      - "8188"
+    ports:
+      - "8188:8188"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./models:/app/models
       - ./output:/app/output
       - ./input:/app/input
-    profiles: ["cpu"]
+      - ./comfyui-nodes/creaturia_nodes:/app/custom_nodes/creaturia_nodes
+    profiles: ["cpu", "dev"]
     restart: unless-stopped
 
   caddy:
