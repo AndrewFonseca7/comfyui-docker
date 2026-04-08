@@ -49,6 +49,8 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-https://creator.andrewfonseca.dev}
     depends_on:
       comfyui:
         condition: service_started
@@ -56,14 +58,18 @@ services:
       comfyui-cpu:
         condition: service_started
         required: false
-    profiles: ["gpu", "cpu"]
+    profiles: ["gpu", "cpu", "dev"]
     restart: unless-stopped
 
   auth-sidecar:
     build: ./proxy/auth-sidecar
     volumes:
       - ./config/api-keys.json:/config/api-keys.json:ro
-    profiles: ["gpu", "cpu"]
+    environment:
+      - COMFY_SESSION_SECRET=${COMFY_SESSION_SECRET:-}
+      - COOKIE_DOMAIN=${COOKIE_DOMAIN:-}
+      - COOKIE_SECURE=${COOKIE_SECURE:-false}
+    profiles: ["gpu", "cpu", "dev"]
     restart: unless-stopped
 
 volumes:

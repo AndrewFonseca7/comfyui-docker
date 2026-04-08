@@ -1,192 +1,124 @@
-# ComfyUI Docker - Context y Notas
+# ComfyUI Docker
 
-## Proyecto Overview
-Aplicación ComfyUI Dockerizada para generación de imágenes con IA, configurada para ejecutarse como API.
+## What is this project
 
-## Estado Actual
-- **Repositorio**: Configurado con Docker para GPU (CUDA) y CPU
-- **Problema actual**: Error GPU en Docker Desktop (driver nvidia no disponible)
-- **Solución implementada**: Usar versión CPU para testing local
+Dockerized ComfyUI for Creaturia -- an AI character creation platform. Runs as an image generation API behind Caddy reverse proxy with authentication. Deployed to NVIDIA Cloud GPU instances (not AWS). The NestJS backend at `api.andrewfonseca.dev` sends workflows via SQS, and users interact with ComfyUI through the frontend (embedded iframe or separate tab).
 
-## Configuraciones Disponibles
+## Architecture
 
-### GPU Version (Producción)
-- **Archivo**: `docker-compose.yaml` + `Dockerfile`
-- **Puerto**: 7860
-- **Base**: `nvidia/cuda:12.1.1-cudnn8-devel-ubuntu22.04`
-- **Modelos**: SDXL, SD2.1, ControlNet, ESRGAN (~10GB)
-- **Comando**: `docker-compose up`
-- **Velocidad**: ~30 segundos por imagen
-
-### CPU Version (Testing local)
-- **Archivo**: `docker-compose.cpu.yaml` + `Dockerfile.cpu`
-- **Puerto**: 8188
-- **Base**: `ubuntu:22.04`
-- **Modelos**: SD 1.5, modelos más pequeños (~2GB)
-- **Comando**: `docker-compose -f docker-compose.cpu.yaml up --build`
-- **Velocidad**: ~5-30 minutos por imagen
-
-## API Endpoints (ComfyUI)
-
-### Básicos
-- `GET /system_stats` - Estado del sistema
-- `POST /prompt` - Enviar workflow para generar imagen
-- `GET /history` - Historial de generaciones
-- `GET /view?filename=imagen.png` - Obtener imagen generada
-- `WS /ws` - WebSocket para seguimiento tiempo real
-
-### Ejemplo Workflow Básico
-```python
-import requests
-
-workflow = {
-    "3": {
-        "inputs": {
-            "seed": 156680208700286,
-            "steps": 20,
-            "cfg": 8,
-            "sampler_name": "euler",
-            "scheduler": "normal",
-            "denoise": 1,
-            "model": ["4", 0],
-            "positive": ["6", 0],
-            "negative": ["7", 0],
-            "latent_image": ["5", 0]
-        },
-        "class_type": "KSampler"
-    }
-    # ... más nodos
-}
-
-response = requests.post(
-    "http://localhost:8188/prompt", 
-    json={"prompt": workflow}
-)
+```
+Internet
+   |
+[Caddy :80/:443] -- forward_auth --> [Auth Sidecar :8080]
+   |
+   |-- /auth/session      -> token exchange, sets cookie, redirects to /
+   |-- Bearer token path   -> M2M (backend -> ComfyUI via API key)
+   |-- Cookie session path -> Browser (iframe / new tab)
+   |
+   └── reverse_proxy -> [ComfyUI :8188]
 ```
 
-## Plan AWS Testing
+## Services (docker-compose.yaml)
 
-### Estrategia de Testing
-1. **Fase 1**: Testing local CPU (sin costo AWS)
-   - Familiarización con API ComfyUI
-   - Desarrollo de workflows básicos
-   - Pruebas de integración
+| Service | Image | Purpose | Profiles |
+|---------|-------|---------|----------|
+| `comfyui` | nvidia/cuda:12.6.3 + ComfyUI | GPU inference, port 8188 (internal) | gpu |
+| `comfyui-cpu` | ubuntu:24.04 + ComfyUI | CPU fallback for local dev, port 8188 (published) | cpu, dev |
+| `caddy` | caddy:2-alpine | Reverse proxy, TLS, auth routing | gpu, cpu, dev |
+| `auth-sidecar` | python:3.12-slim + PyJWT | Token/cookie/API-key validation | gpu, cpu, dev |
 
-2. **Fase 2**: Testing AWS GPU (4 horas, ~$2-3 total)
-   - Validación rendimiento real
-   - Testing carga/stress
-   - Medición costos operativos
+## Authentication (proxy/)
 
-### Instancias AWS Recomendadas
+Three auth paths, all routed by Caddy via `forward_auth` to the auth sidecar:
 
-#### Para Testing GPU (4 horas)
-- **g4dn.xlarge**: $0.526/hora = $2.10 total
-  - GPU: NVIDIA Tesla T4 (16GB VRAM)
-  - CPU: 4 vCPUs, 16GB RAM
-  - Capacidad: SDXL, modelos grandes
+### 1. Token exchange (`/auth/session?token=...`)
+- Frontend calls `POST api.andrewfonseca.dev/v1/comfyui/session` (JWT auth) to get a signed token
+- Frontend loads `https://comfy.andrewfonseca.dev/auth/session?token=<signed_token>` as iframe src or new tab
+- Auth sidecar validates the JWT (HS256, checks `iss=creaturia-api`, single-use `jti` nonce)
+- Sets `comfy_session` HttpOnly cookie, redirects to `/`
+- All subsequent requests use the cookie
 
-#### Para Producción (si escalas)
-- **g5.xlarge**: $1.006/hora 
-  - GPU: A10G (24GB VRAM)
-  - Mejor rendimiento para modelos grandes
+### 2. Bearer API key (`Authorization: Bearer <key>`)
+- M2M path for backend SQS workers calling ComfyUI
+- Keys stored in `config/api-keys.json`
+- Sidecar endpoint: `/validate`
 
-#### Para CPU (desarrollo barato)
-- **c5.2xlarge**: $0.34/hora
-  - 8 vCPUs, 16GB RAM
-  - Solo para testing sin GPU
+### 3. Cookie session (default)
+- Browser/iframe requests after token exchange
+- Sidecar endpoint: `/validate-cookie`
+- Validates JWT from `comfy_session` cookie (no nonce check -- cookies are reused)
 
-## Comandos Útiles
+### Auth sidecar (`proxy/auth-sidecar/main.py`)
+- Single-file Python HTTP server with PyJWT
+- Endpoints: `/validate`, `/exchange`, `/validate-cookie`
+- In-memory nonce tracking with TTL cleanup
+- Config via env vars: `COMFY_SESSION_SECRET`, `COOKIE_DOMAIN`, `COOKIE_SECURE`
 
-### Local Development
-```bash
-# CPU version (testing)
-docker-compose -f docker-compose.cpu.yaml up --build
+### Caddyfile (`proxy/Caddyfile`)
+- Security headers: `Content-Security-Policy frame-ancestors`, CORS
+- CORS preflight handler for OPTIONS
+- Three route blocks: `/auth/session`, `@has_bearer`, default cookie
 
-# GPU version (si tienes NVIDIA configurado)
-docker-compose up --build
+## Environment Variables (`.env`)
 
-# Verificar estado Docker
-docker ps
-docker logs comfyui-docker-comfyui-cpu-1
-```
+| Variable | Local default | Production |
+|----------|--------------|------------|
+| `DOMAIN` | `localhost` | `comfy.andrewfonseca.dev` |
+| `COMFY_SESSION_SECRET` | same as backend `JWT_SECRET` | same as backend `JWT_SECRET` |
+| `ALLOWED_ORIGIN` | `http://localhost:5173` | `https://creator.andrewfonseca.dev` |
+| `COOKIE_DOMAIN` | _(empty)_ | `.andrewfonseca.dev` |
+| `COOKIE_SECURE` | `false` | `true` |
+| `AUTH_USER` | `admin` | _(legacy, being replaced)_ |
+| `AUTH_HASH` | hashed password | _(legacy, being replaced)_ |
 
-### API Testing
-```bash
-# Test básico
-curl http://localhost:8188/system_stats
+## Custom Nodes (`comfyui-nodes/creaturia_nodes/`)
 
-# Ver modelos disponibles
-curl http://localhost:8188/object_info
-```
+- **GenerateImageNode**: Calls backend Midjourney API, polls for completion, downloads from S3/Discord CDN
+- **CreaturiaShowTextNode**: Displays text in ComfyUI UI
+- Env vars: `CREATURIA_API_URL` (default: `http://host.docker.internal:3000`), `CREATURIA_API_TOKEN`
 
-## Resultados Testing M3 Pro (CPU)
+## Models
 
-### Workflow Básico Probado ✅
-- **Modelo**: SD 1.5 (v1-5-pruned-emaonly.ckpt)
-- **Resolución**: 512x512
-- **Pasos**: 8 (optimizado para CPU)
-- **Tiempo aproximado**: 1-2 minutos
-- **Prompt**: "a beautiful cat sitting in a garden, photorealistic"
-- **Resultado**: ComfyUI_test_00001_.png
+Download profiles via `scripts/download-models.sh`:
 
-### Rendimiento M3 Pro
-- **VRAM simulada**: ~7.6GB (RAM unificada)
-- **Device**: CPU (sin Metal GPU support en Docker)
-- **Velocidad**: Significativamente mejor que CPU Intel estándar
-- **Estabilidad**: Excelente, sin errores
+| Profile | Size | Contents |
+|---------|------|----------|
+| minimal | ~4.5GB | SD 1.5 + VAE |
+| standard | ~11.5GB | + SDXL base/refiner + ESRGAN upscalers |
+| full | ~23.5GB | + ControlNet + Control-LoRAs + GLIGEN |
 
-### API Endpoints Verificados ✅
-- `GET /system_stats` - Funcionando
-- `POST /prompt` - Funcionando (workflow ejecutado exitosamente)
-- `GET /history` - Funcionando
-- `GET /view?filename=` - Disponible para ver imágenes
+Currently downloaded: SD 1.5 (`v1-5-pruned-emaonly.ckpt`) + VAE (~4.3GB).
 
-## AWS GPU Deployment Ready ✅
-
-### Archivos Creados para AWS
-- `aws-deploy.md` - Guía completa de deployment
-- `setup-aws-instance.sh` - Script de configuración automática  
-- `docker-compose-aws.yaml` - Docker config para GPU
-- `aws-performance-test.py` - Suite de benchmarks
-- `aws-launch.sh` - Launcher automático de instancia EC2
-
-### Quick Start AWS GPU (Estimado: $2.10 para 4 horas)
+## Local Development
 
 ```bash
-# 1. Lanzar instancia (reemplazar your-key-name)
-./aws-launch.sh us-east-1 your-key-name
+# Full stack with auth (CPU + Caddy + sidecar)
+docker compose --profile dev up --build
 
-# 2. Subir archivos (usar IP de output)
-scp -i ~/.ssh/your-key-name.pem *.sh *.yaml *.py ubuntu@EC2_IP:~/
+# Direct ComfyUI only (no auth, no proxy)
+docker compose --profile dev up comfyui-cpu --build
 
-# 3. SSH y configurar
-ssh -i ~/.ssh/your-key-name.pem ubuntu@EC2_IP
-./setup-aws-instance.sh
+# Test auth flow
+curl http://localhost/system_stats                    # 401 (no auth)
+curl -H "Authorization: Bearer <api-key>" http://localhost/system_stats  # 200
 
-# 4. Subir código Docker y ejecutar
-# ... subir Dockerfile, requirements.txt
-docker-compose -f docker-compose-aws.yaml up --build
-
-# 5. Ejecutar benchmark
-python3 aws-performance-test.py http://localhost:7860 full
+# GPU version (requires NVIDIA runtime)
+docker compose --profile gpu up --build
 ```
 
-### Performance Esperado vs M3 Pro CPU
-- **Velocidad**: 15-25x más rápido
-- **Calidad**: SDXL (vs SD 1.5)
-- **Resolución**: 1024x1024 (vs 512x512)
-- **Tiempo por imagen**: ~20-30s (vs 90s)
-- **Costo por imagen**: ~$0.004
+## Volume Mounts
 
-## Próximos Pasos
-1. [x] Ejecutar versión CPU local para familiarización
-2. [x] Desarrollar/probar workflows básicos
-3. [x] Preparar configuración para AWS GPU
-4. [ ] Testing 4 horas en AWS g4dn.xlarge
-5. [ ] Evaluación costos vs rendimiento
+```
+./models/           -> /app/models          (checkpoints, VAE, controlnet)
+./output/           -> /app/output          (generated images)
+./input/            -> /app/input           (source images)
+./comfyui-nodes/    -> /app/custom_nodes/   (Creaturia nodes)
+./config/           -> /config/             (api-keys.json, read-only in sidecar)
+./proxy/Caddyfile   -> /etc/caddy/Caddyfile
+```
 
-## Notas Técnicas
-- Primera ejecución tarda 15-30 min (descarga modelos)
-- CPU version: modelos más pequeños para testing
-- GPU version: full capacity, modelos pesados
-- API compatible entre ambas versiones (solo cambia velocidad)
+## Related Projects
+
+- **Terraform**: `creaturia-tf` -- DNS (`comfy.andrewfonseca.dev`), SSM params, certs
+- **Backend**: `creaturia-backend` -- `POST /v1/comfyui/session` issues signed tokens, SQS workers call ComfyUI via Bearer API key
+- **Frontend**: `creator` -- embeds ComfyUI in iframe via session URL, "Open in new tab" button

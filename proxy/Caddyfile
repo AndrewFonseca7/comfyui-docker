@@ -1,5 +1,30 @@
 {$DOMAIN:localhost} {
-    # M2M: requests with Bearer token -> validate via sidecar
+    # Security headers — restrict iframe embedding to the frontend
+    header {
+        Content-Security-Policy "frame-ancestors https://creator.andrewfonseca.dev http://localhost:5173"
+        Access-Control-Allow-Origin "{$ALLOWED_ORIGIN:https://creator.andrewfonseca.dev}"
+        Access-Control-Allow-Credentials "true"
+        Access-Control-Allow-Methods "GET, POST, OPTIONS"
+        Access-Control-Allow-Headers "Authorization, Content-Type"
+    }
+
+    # CORS preflight
+    @options method OPTIONS
+    handle @options {
+        respond 204
+    }
+
+    # Token exchange callback — sets session cookie, redirects to /
+    @auth_callback path /auth/session
+    handle @auth_callback {
+        forward_auth auth-sidecar:8080 {
+            uri /exchange
+            copy_headers X-User Set-Cookie
+        }
+        redir / 302
+    }
+
+    # M2M: requests with Bearer token -> validate via sidecar (EXISTING FLOW)
     @has_bearer header Authorization Bearer*
     handle @has_bearer {
         forward_auth auth-sidecar:8080 {
@@ -11,10 +36,11 @@
         }
     }
 
-    # Browser users: basic auth
+    # Browser/iframe: cookie-based session
     handle {
-        basicauth {
-            {$AUTH_USER} {$AUTH_HASH}
+        forward_auth auth-sidecar:8080 {
+            uri /validate-cookie
+            copy_headers X-User
         }
         reverse_proxy comfyui:8188 comfyui-cpu:8188 {
             lb_try_duration 1s
