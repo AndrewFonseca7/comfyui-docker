@@ -1,0 +1,26 @@
+{
+  "1": {
+    "class_type": "GenerateImageNode",
+    "inputs": {
+      "prompt": "a stoic dwarven cleric, full body portrait, fantasy art --v 6",
+      "poll_interval": 5,
+      "max_wait": 600
+    }
+  },
+  "2": {
+    "class_type": "SelectMidjourneyOptionNode",
+    "inputs": {
+      "job_id": ["1", 2],
+      "quadrant": 1,
+      "poll_interval": 5,
+      "max_wait": 600
+    }
+  },
+  "3": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "creaturia_select_test",
+      "images": ["2", 0]
+    }
+  }
+}
