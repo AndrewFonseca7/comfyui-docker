@@ -4,3 +4,8 @@ models/**/*.pth
 models/**/*.bin
 output/
 .env
+
+# build / OS artifacts
+__pycache__/
+*.pyc
+.DS_Store
