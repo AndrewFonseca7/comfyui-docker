@@ -1,0 +1,34 @@
+{
+  "1": {
+    "class_type": "GenerateImageNode",
+    "inputs": {
+      "prompt": "a stoic dwarven cleric, full body portrait, fantasy art --v 6",
+      "poll_interval": 5,
+      "max_wait": 600
+    }
+  },
+  "2": {
+    "class_type": "SelectMidjourneyOptionNode",
+    "inputs": {
+      "job_id": ["1", 2],
+      "quadrant": 1,
+      "poll_interval": 5,
+      "max_wait": 600
+    }
+  },
+  "3": {
+    "class_type": "CreaturiaTripoImageToModelNode",
+    "inputs": {
+      "image_url": ["2", 1],
+      "prompt": "dwarven cleric character, full body, T-pose",
+      "poll_interval": 10,
+      "max_wait": 1800
+    }
+  },
+  "4": {
+    "class_type": "CreaturiaShowTextNode",
+    "inputs": {
+      "text": ["3", 0]
+    }
+  }
+}
